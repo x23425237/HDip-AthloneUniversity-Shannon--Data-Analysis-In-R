@@ -1,0 +1,449 @@
+---
+title: "US Airlines Traffic -  Data Analysis Report"
+author: "Bharathi Ramapatnam"
+date: "2023-10-16"
+output: html_document
+theme:
+ bootswatch: solar
+
+---
+
+<img src="Picture1.jpg" alt="Sample Image" style="float: right; padding-right: 10px;">
+
+
+
+
+## Introduction: 
+
+US Airlines data analysis is conducted on US air traffic data for the month of July -2015 considering  14 days of data. The three csv files given are  “US_airlines.csv” containing 14 airline details.“US_airports.csv” containing Location co-ordinates  of airports within each state.  
+And “US_airrecords14.csv” is the main dataset containing air traffic data between origin and destination airports , flight cancellations,  flight delay etc.,
+
+## Load the libraries 
+```{r install_packages }
+#install.packages("dplyr")
+```
+
+
+
+```{r include=TRUE,message = FALSE,warning=FALSE,results= "hide",load_libraries  }
+
+
+library(dplyr)
+library(MASS)
+library(stringr)
+library(ggplot2)
+
+```
+
+## Load the Datasets 
+
+```{r include=TRUE,message = FALSE,warning=FALSE,results= "hide",Load_datasets}
+# Read data from the first CSV file
+data1 <- read.csv("US_airlines.csv")
+
+# Read data from the second CSV file
+data2 <- read.csv("US_airrecords14.csv")
+
+# Read data from the third CSV file
+data3 <- read.csv("US_airports.csv")
+
+dim(data1) # 14 rows and 2 columns 
+dim(data2) # 231603 rows and 31 columns
+dim(data3) #322 rows and 7 columns 
+
+```
+
+- Summary of Data 2 shows lots of NA values in various columns. 
+
+- Day_OF_WEEK contains 7 days in a week which we will look at changing to days of the week. 
+
+- Distance column is contains bigger numbers. 
+
+- Some of the columns for example SCHEDULED_DEPARTURE,DEPARTURE_TIME,WHEELS_OFF contains single digit number which should be in the format of HHMM indicating 
+   SCHEDULED_DEPARTURE to be 12:03, DEPARTURE_TIME  to be 12:01 ect. 
+   
+- DIVERTED and CANCELLED columns contains binary values 0 or 1 
+
+- IATA_CODE ,TAIL_NUMBER ,ORIGIN_AIRPORT ,DESTINATION_AIRPORT,CANCELLATION_REASON contain character data. 
+
+- AIR_SYSTEM_DELAY,SECURITY_DELAY ,AIRLINE_DELAY LATE_AIRCRAFT_DELAY,WEATHER_DELAY   all contain delay time in minits  Theses columns also contain same row count
+of missing or N/A values. 
+
+
+```{r echo= "TRUE",results= "hide", summary_data2}
+summary(data2)
+```
+
+```{r results= "hide",summary_data1}
+
+summary(data1)
+```
+
+
+```{r results= "hide",summary_data3}
+
+summary(data3)
+```
+
+## File Handling 
+
+
+- Combine Data1 with Data2 by  IATA_CODE, and combine this to data3 by ORIGIN_AIRPORT 
+- NOTE : to use innerjoin fuction column column is required in the both datasets. by observing the Airline codes in Data 1 
+  to a matching code in data2 - AIRLINE column is renamed to IATA_CODE in dataset2 with in excel 
+- NOTE : to combine datasest 3 where file contains location co-ordinates, IATA_CODE is re-named to ORIGIN_AIRPORT in dataset3.
+- After combining the dataset checks are made to see if the join is correct and no duplicates are created. 
+
+```{r, combine_datasets}
+# join data set 1 with 2 on IATA_CODE
+merged_data <- inner_join(data2, data1, by = 'IATA_CODE')
+
+
+#join dataset 1 with mergdata on origin airport 
+merged_data <- inner_join(data3, merged_data, by = c("ORIGIN_AIRPORT"))
+
+
+#Finial dataset merged_data contains 231603 rows and 38 columns indicating there are no duplicate rows created after the joining tables. 
+
+```
+
+
+```{r include=TRUE,message = FALSE,warning=FALSE,results= "hide",locate_duplicates}
+# locate unique values in the common columns - Note US airline  is not in data2
+# Dataset 3 we have location details of 322 airports, but we only have 312 origin airports in dataset 2 
+
+sort(unique(data1$IATA_CODE))
+sort(unique(data2$IATA_CODE))
+sort(unique(merged_data$IATA_CODE))
+
+sort(unique(data2$ORIGIN_AIRPORT))
+sort(unique(data3$ORIGIN_AIRPORT))
+```
+
+
+
+
+
+```{r results= "hide",summary_merged_data}
+# this will be the final dataset we will be using for analysis 
+summary(merged_data)
+```
+
+
+## Create subset and remove missing values 
+```{r,summary_merged_data1}
+# Select all excluding delay columns and Diverted,cancelled , cancellation reason 
+merged_data1 <- merged_data[,-30:-37]
+
+ 
+# mean of missing vlues 
+colMeans(is.na(merged_data1)) 
+
+
+# remove rows with missing vlues 
+merged_data1<- merged_data1 %>%                                        
+  na.omit
+
+# no missing values 
+num_missing <- colSums(is.na(merged_data1))
+print(num_missing)
+
+
+```
+
+
+## Combine columns and change DAY_OF_WEEK to char type
+```{r results= "hide", combine_columns}
+
+merged_data1 <- merged_data1 %>%
+  mutate(DATE = as.Date(paste(YEAR, MONTH, DAY, sep = "-")))%>% # combine year, month and day into new column 
+  mutate(DAYOFTHEWEEK = as.factor(case_when(
+    DAY_OF_WEEK == 1 ~ "Monday",
+    DAY_OF_WEEK == 2 ~ "Tuesday",
+    DAY_OF_WEEK == 3 ~ "Wednesday",
+    DAY_OF_WEEK == 4 ~ "Thursday",
+    DAY_OF_WEEK == 5 ~ "Friday",
+    DAY_OF_WEEK == 6 ~ "Saturday",
+    DAY_OF_WEEK == 7 ~ "Sunday"
+  )))%>%
+  relocate(DATE: DAYOFTHEWEEK,AIRLINE, .before = IATA_CODE) # re-locate columns 
+
+
+# drop columns Months,Day and Day_of_week as we have combined these into Date column 
+#Finial dataset now contains only 28 columns and 228,252 rows 
+merged_data1 <- subset(merged_data1, select = -c(YEAR, MONTH, DAY,DAY_OF_WEEK))
+
+
+
+
+```
+
+
+
+
+
+
+```{r}
+# NOTE that Date column is now of type 'date' and Dayoftheweek is now a 'factor'. 
+ sapply(merged_data1, class)
+```
+
+## Which is the Biggest Airline ? 
+
+<span style="color:blue">**Southwest Airlines Co. is the biggest  airlines with count of 49,892 outbound flights ** </span>,
+
+<span style="color:blue">**Virgin America being the smallest ** </span>,
+
+
+
+```{r, Analysis_1}
+
+count_rows <- merged_data1 %>%
+  group_by(AIRLINE) %>%
+  summarize(count = n())%>%
+arrange(desc(count))
+
+count_rows
+
+```
+
+```{r}
+ggplot(data=count_rows, aes(x=AIRLINE, y=count,fill=AIRLINE)) +
+geom_bar(stat="identity")+
+geom_text(aes(label=count), vjust=-0.3, size=3.5,color = "black")+
+theme_minimal()+
+ coord_flip()
+```
+
+
+## Which is the busiest Airport ? 
+
+
+<span style="color:blue">**Hartsfield-Jackson Atlanta International Airport is the busiest airport with 14,869 outbound fights  ** </span>,
+
+```{r,warning=FALSE,Analysis_2}
+count_ORIGIN_AIRPORT <- merged_data1 %>%
+  group_by(AIRPORT,ORIGIN_AIRPORT) %>%
+  summarize(count = n())%>%
+arrange(desc(count))
+
+count_ORIGIN_AIRPORT
+
+```
+
+## Top 5 airports were average departure delays are greater than 15 min 
+ 
+<span style="color:blue">**Barnstable Municipal Airport ** </span>,
+<span style="color:blue">**Kodiak Airport  ** </span>,
+<span style="color:blue">**Gustavus Airport  ** </span>,
+<span style="color:blue">**Martha's Vineyard Airport  ** </span>,
+<span style="color:blue">**and Gunnison-Crested Butte Regional Airport  ** </span>
+
+```{r,warning=FALSE,message=FALSE,Analysis_3}
+
+count_rows <- merged_data1 %>%
+  group_by(ORIGIN_AIRPORT,AIRPORT) %>%
+  summarize(avg_delay =round(mean(DEPARTURE_DELAY),0))%>%
+  filter(avg_delay > 15)%>%
+arrange(desc(avg_delay))
+
+head(count_rows,5)
+```
+
+
+## Which day is the quietest day of the week in Hartsfield-Jackson Atlanta International Airport?
+
+<span style="color:blue">**Saturday : with only 1721 outbound fights  ** </span>,
+```{r,warning=FALSE,Analysis_4}
+count_DAY_OF_WEEK <- merged_data1 %>%
+  group_by(AIRPORT,ORIGIN_AIRPORT,DAYOFTHEWEEK) %>%
+  summarize(count = n())%>%
+arrange((count))%>%
+filter(AIRPORT=='Hartsfield-Jackson Atlanta International Airport')
+
+count_DAY_OF_WEEK
+```
+
+
+## Geo plot - Location of US airports with count of outbound flights using leaflet libraries. 
+```{r,warning=FALSE,Analysis_5}
+# get the row count for each airport of there respective outbound journey. 
+count_Location  <- merged_data1 %>%
+  group_by(STATE,AIRPORT,LONGITUDE,LATITUDE) %>%
+  summarize(count = n())%>%
+arrange(desc(count))
+
+count_Location
+```
+
+```{r,Analysis_6}
+count_Location <- count_Location %>%
+  mutate(marker_size = count / 50,  # Adjust the multiplier for marker size
+         popup_text = paste("Count:", count, "AIRPORT:", AIRPORT))
+
+
+count_Location
+```
+
+```{r, warning = FALSE}
+# install the package leaflet and plug the data. Reduce the marker size to fit the window. Insert pop test when hover over the airport. 
+#install.packages("leaflet")
+```
+```{r, message=FALSE}
+library(leaflet)
+```
+```{r}
+# Create a map
+usa_airports_map <- leaflet(count_Location) %>%
+  addTiles() %>%
+  addCircleMarkers(
+    lng = ~LONGITUDE,
+    lat = ~LATITUDE,
+    radius = ~(marker_size/20),  # Adjust the multiplier for marker size
+    color = "blue",  # Marker color
+    #fillOpacity = 0.6,  # Opacity of the marker fill
+    popup = ~paste("Count:", count, "AIRPORT:", AIRPORT)
+  )
+
+# Display the map
+usa_airports_map
+
+```
+
+
+
+
+## Regression 
+### The relationship between  Airtime and Distance 
+
+- Airtime and Distance are skewed to the right indicating lot of observations are towards the smaller side
+- In most case distance travelled between the airports is less indicating less airtime. Could also be the case that    destination airports nearby.
+- There are very few log haul flights with inthe dataset. 
+- Scatterplot shows there is a +ve relation between Distance and AirTime. As the distance between the journey increases, Air    time increases.
+- Check to see if Airtime is normally distrubuted before and after removing the outliers using Normal Q-Q plot. Data points     are lot more closure to the line towards the top of the line comared to before. 
+- when a Shapiro-Wilk normality test is performed -  W Statistic figures after removing the outlier has a score of 0.93 which   is closer to 1 indicating data follows normal distrubution. 
+- But Removing the outlier in the dataset is removing the travel time between the journeys which is not what we want to do as   travel time between the departure and arrival are fixed. 
+- Samll p- value of less than 0.05 indicating data is not normally distrubuted. 
+
+
+
+
+
+```{r, figures-side, fig.show="hold", out.width="50%", echo=FALSE,warning=FALSE}
+
+# Distribution of Airtime 
+p <- ggplot(merged_data1, aes(x=AIR_TIME)) + 
+  geom_density(color="darkblue", fill="lightblue")+
+  xlim(0, 600)+
+  labs(title = "Density Plot of AIR_TIME", x = "AIR_TIME", y = "Density") 
+p
+
+
+# Distribution of DISTANCE 
+q <- ggplot(merged_data1, aes(x=DISTANCE)) + 
+  geom_density(color="darkblue", fill="lightblue")+
+  xlim(0, 6000)+
+  labs(title = "Density Plot of DISTANCE", x = "DISTANCE", y = "Density") 
+q
+```
+
+
+
+
+
+```{r,figures-sidebyside, fig.show="hold", out.width="50%",echo=FALSE,warning=FALSE}
+plot(merged_data1$AIR_TIME,merged_data1$DISTANCE, main = "Scatterplot",xlab = "AIR_TIME", ylab = "DISTANCE")
+
+#normality of the aritime
+qqnorm(merged_data1$AIR_TIME)
+qqline(merged_data1$AIR_TIME)
+
+
+subset <- sample(merged_data1$AIR_TIME, 5000)
+
+
+shapiro.test(subset) # p value is significantly less than .05 hence 
+#data is not normally distributed 
+
+
+```
+
+
+###Remove the outlier from the dataset and plot 
+```{r,echo=FALSE,warning=FALSE, remove_outlier}
+#find Q1, Q3, and interquartile range for values in column A
+Q1 <- quantile(merged_data1$AIR_TIME, .25)
+Q3 <- quantile(merged_data1$AIR_TIME, .75)
+IQR <- IQR(merged_data1$AIR_TIME)
+
+#only keep rows in dataframe that have values within 1.5*IQR of Q1 and Q3
+no_outliers <- subset(merged_data1, merged_data1$AIR_TIME> (Q1 - 1.5*IQR) & merged_data1$AIR_TIME< (Q3 + 1.5*IQR))
+
+#normality of the aritime
+qqnorm(no_outliers$AIR_TIME)
+qqline(no_outliers$AIR_TIME)
+
+
+subset <- sample(no_outliers$AIR_TIME, 5000)
+
+
+shapiro.test(subset) # p value is significantly less than .05 hence 
+#data is not normally distributed 
+```
+
+## Liner Regression
+- output of Linear model :
+- With 1 unit increase in distance , Airtime increases by 1.72 . this is a positive value hence distance and airtime has +ve     relation
+- Adjusted R-squred of 0.98 states that 98% of the varience in airtime is explaied by distance. 
+- P value is less than 0.05 hence Distance has significant impact on airtime or it a strong variable to predit airtime
+
+
+
+- estimated regression equation : y=mx+c 
+-  m is the slope = 1.60, 
+-  c is the intercept = 1.712, 
+-  x is any given distance 
+ 
+
+
+```{r, linear_model}
+# linear model Predicting flying time based on distance 
+# reject null hyphotheisis - there is relation between distance and air time 
+model <- lm(AIR_TIME ~DISTANCE  , data = merged_data1)
+summary(model)
+```
+
+
+## Challenges :
+- There are columns in the dataset ex : SCHEDULED_DEPARTURE, DEPARTURE_TIME,WHEELS_OFF,WHEELS_ON, ARRIVAL_TIME are classfied    as int they are not   in the hhmmss format. Ex: some observations are single digits, thses shoudl be in 0003 format . 
+
+- These columns are left as int to faciliate visualizations and for analysis
+
+- Not all the Airlines are listed in airtraffic data.
+
+- Lot of missing data in Delay columns - either this information is missing or no dealy 
+
+- AIR_TIME is not always calculated correct Ex: wheel off at 0200 and well on to 0441 - difference between this shoudl be 0241 but this is recorded   as 341 in the Air time. Air time calculations are not been altered as there could be different time zone invovled.
+
+- It is possible that co-relation exists apart from airtime and distance . EX: TAXI_IN is dependent on wheel on and arrivial time. 
+
+
+
+`
+## References :
+
+Direct in-line links: <https://www.statology.org/remove-columns-in-r/>.
+Direct in-line links: <https://stackoverflow.com/questions/33512837/calculate-using-dplyr-percentage-of-nas-in-each-column>.
+Direct in-line links: <https://dplyr.tidyverse.org/articles/dplyr.html?q=pipe>.
+Direct in-line links: <https://www.statology.org/pipe-in-r/>.
+Direct in-line links: <http://www.sthda.com/english/wiki/ggplot2-barplots-quick-start-guide-r-software-and-data-visualization/>.
+
+
+`
+
+
+
+
+
+```
+
